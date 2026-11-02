@@ -1,4 +1,4 @@
-// Assistente Fiscal da Forza Metal 3D — servidor local (127.0.0.1) que guarda o certificado A1,
+// Assistente Fiscal do Brim3D — servidor local (127.0.0.1) que guarda o certificado A1,
 // assina e transmite a NF-e para a SEFAZ-SP. O sistema (Base44) conversa com ele pelo navegador.
 import http from "node:http";
 import fs from "node:fs";
@@ -184,7 +184,7 @@ if (executadoDiretamente) {
   });
   srv.listen(PORTA, "127.0.0.1", () => {
     console.log("\n==============================================");
-    console.log("  ASSISTENTE FISCAL · Forza Metal 3D  v" + VERSAO);
+    console.log("  ASSISTENTE FISCAL · Brim3D  v" + VERSAO);
     console.log("==============================================");
     console.log(`  Rodando em http://localhost:${PORTA}`);
     console.log("  Deixe esta janela ABERTA para emitir notas.");
