@@ -1,9 +1,9 @@
 // Página de configuração do Assistente (abre em http://localhost:3777).
-export const VERSAO = "1.0.0";
+export const VERSAO = "1.0.1";
 
 export function paginaInicial(token) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Assistente Fiscal · Forza Metal 3D</title>
+<title>Assistente Fiscal · Brim3D</title>
 <style>
 :root{--p:#0b6fa4;--bg:#f4f7fb;--card:#fff;--b:#dbe3ee;--t:#0f172a;--m:#64748b;--ok:#059669;--er:#dc2626;--wa:#d97706}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--t)}
@@ -22,7 +22,7 @@ button.sec{background:#e2e8f0;color:var(--t)}button:disabled{opacity:.5;cursor:d
 .msg{margin-top:10px;font-size:14px}.msg.er{color:var(--er);background:none}.msg.ok{color:var(--ok);background:none}
 small{color:var(--m)}ul{margin:6px 0 0 18px;padding:0;color:var(--m);font-size:14px}
 </style></head><body><div class="wrap">
-<h1>Assistente Fiscal</h1><p class="sub">Forza Metal 3D · emite a nota fiscal usando o certificado deste computador. Deixe esta janela aberta enquanto emitir notas.</p>
+<h1>Assistente Fiscal</h1><p class="sub">Brim3D · emite a nota fiscal usando o certificado deste computador. Deixe esta janela aberta enquanto emitir notas.</p>
 
 <div class="card"><h2>1. Código de conexão</h2>
 <p style="margin:0 0 8px;color:var(--m);font-size:14px">Cole este código no sistema (Fiscal › Configurações) uma única vez, para ele reconhecer este computador.</p>

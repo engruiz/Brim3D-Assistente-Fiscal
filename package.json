@@ -1,6 +1,6 @@
 {
   "name": "brim3d-assistente-fiscal",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Assistente Fiscal do Brim3D: emite NF-e (MEI) usando o certificado A1 guardado neste computador.",

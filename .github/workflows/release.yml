@@ -1,39 +1,32 @@
 name: Publicar Assistente Fiscal
-
-# Sempre que o código mudar na branch principal, compila o .exe e publica uma nova release.
-# A versão vem do campo "version" do package.json (ex.: 1.0.1 vira a release v1.0.1).
 on:
   push:
     branches: [main, master]
-    paths: ["src/**", "package.json"]
+    paths: ["src/**", "package.json", "icon.ico", ".github/workflows/release.yml"]
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with:
-          node-version: 22
+        with: { node-version: 22 }
       - uses: oven-sh/setup-bun@v2
       - name: Instalar dependências
         run: npm install --no-audit --no-fund
-      - name: Compilar o .exe do Windows
+      - name: Compilar o .exe com o logo da Brim3D
         run: |
           mkdir -p dist
-          bun build --compile --target=bun-windows-x64 src/server.js --outfile dist/Brim3D-Assistente-Fiscal.exe
+          bun build --compile --target=bun-windows-x64 --windows-icon=icon.ico --windows-title="Brim3D Assistente Fiscal" --windows-publisher="Brim3D" --windows-description="Assistente Fiscal do Brim3D" src/server.js --outfile dist/Brim3D-Assistente-Fiscal.exe
       - name: Publicar a release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSAO=$(node -p "require('./package.json').version")
-          TAG="v$VERSAO"
+          VERSAO=$(node -p "require('./package.json').version"); TAG="v$VERSAO"
           gh release delete "$TAG" --yes --cleanup-tag || true
-          gh release create "$TAG" dist/Brim3D-Assistente-Fiscal.exe \
-            --title "Assistente Fiscal $VERSAO" \
-            --notes "Versão $VERSAO do Assistente Fiscal do Brim3D." \
-            --latest
+          gh release create "$TAG" dist/Brim3D-Assistente-Fiscal.exe --title "Assistente Fiscal $VERSAO" --notes "Versão $VERSAO do Assistente Fiscal do Brim3D." --latest
