@@ -9,6 +9,8 @@ import { autorizarNfe, consultarChave, cancelarNfe, cartaCorrecao, inutilizarNum
 import { lerConfig, salvarConfig, arquivoPfx, cifrarSenha, decifrarSenha, guardarNota, log, lerCa, pastaDados } from "./config.js";
 import { paginaInicial, VERSAO } from "./page.js";
 import { onlyDigits } from "./util.js";
+import { iniciarMonitor, statusMonitor, atualizarAgora, procurarImpressoras } from "./monitor/index.js";
+import { definirCodigo, definirAcesso } from "./monitor/store.js";
 
 const PORTA = Number(process.env.FISCAL_PORT || 3777);
 let cert = null; // certificado aberto em memória
@@ -51,6 +53,8 @@ function responder(res, status, obj, cors = {}) {
 const erroDe = (e) => (e instanceof SefazError || e instanceof CertError ? e.message : `Erro interno: ${e?.message || e}`);
 
 function exigirCert(ambiente, cfg, cnpjEmpresa) {
+  const pl = statusMonitor();
+  if (pl.temCodigo && pl.plano && !pl.plano.fiscal) throw new CertError("O plano da sua conta não inclui a emissão de NF-e. Faça o upgrade no sistema (Plano) para liberar.");
   if (!cert) throw new CertError("O certificado digital ainda não foi carregado no Assistente. Abra o Assistente e informe o certificado e a senha.");
   if (cert.vencido) throw new CertError("O certificado digital está vencido.");
   if (ambiente === "producao" && !cfg.producaoLiberada) throw new CertError("A emissão em produção ainda não foi liberada no Assistente (por segurança). Libere na janela do Assistente quando estiver pronto.");
@@ -78,10 +82,14 @@ export function criarServidor() {
       // Tudo abaixo exige o código de conexão
       if (req.headers["x-fiscal-token"] !== cfg.token) return responder(res, 401, { ok: false, erro: "Código de conexão inválido. Copie o código mostrado na janela do Assistente Fiscal." }, cors);
 
+      if (req.method === "GET" && url.pathname === "/monitor/status") return responder(res, 200, { ok: true, ...statusMonitor() }, cors);
       if (req.method === "GET" && url.pathname === "/status") return responder(res, 200, { ok: true, versao: VERSAO, certificado: infoCert(), producaoLiberada: cfg.producaoLiberada, pasta: pastaDados() }, cors);
       if (req.method !== "POST") return responder(res, 404, { ok: false, erro: "Rota não encontrada." }, cors);
       const b = await lerCorpo(req);
 
+      if (url.pathname === "/monitor/config") { definirCodigo(b.codigo); atualizarAgora(); return responder(res, 200, { ok: true }, cors); }
+      if (url.pathname === "/monitor/acesso") { definirAcesso(b.serial, b.codigo); atualizarAgora(); return responder(res, 200, { ok: true }, cors); }
+      if (url.pathname === "/monitor/procurar") { procurarImpressoras(); return responder(res, 200, { ok: true }, cors); }
       if (url.pathname === "/config") {
         if (typeof b.producaoLiberada === "boolean") cfg.producaoLiberada = b.producaoLiberada;
         if (Array.isArray(b.origens)) cfg.origens = b.origens.filter((o) => /^https:\/\/[\w.-]+$/.test(o));
@@ -177,17 +185,18 @@ function abrirNavegador(url) {
 const executadoDiretamente = !process.env.FISCAL_NO_AUTOSTART;
 if (executadoDiretamente) {
   carregarCertSalvo();
+  iniciarMonitor(log);
   const srv = criarServidor();
   srv.on("error", (e) => {
-    if (e.code === "EADDRINUSE") { console.log(`\nO Assistente Fiscal já está aberto (porta ${PORTA}). Pode fechar esta janela.\n`); abrirNavegador(`http://localhost:${PORTA}`); setTimeout(() => process.exit(0), 3000); }
+    if (e.code === "EADDRINUSE") { console.log(`\nO Brim3D Desktop já está aberto (porta ${PORTA}). Pode fechar esta janela.\n`); abrirNavegador(`http://localhost:${PORTA}`); setTimeout(() => process.exit(0), 3000); }
     else { console.error(e); }
   });
   srv.listen(PORTA, "127.0.0.1", () => {
     console.log("\n==============================================");
-    console.log("  ASSISTENTE FISCAL · Brim3D  v" + VERSAO);
+    console.log("  BRIM3D DESKTOP  v" + VERSAO);
     console.log("==============================================");
     console.log(`  Rodando em http://localhost:${PORTA}`);
-    console.log("  Deixe esta janela ABERTA para emitir notas.");
+    console.log("  Deixe esta janela ABERTA: ela monitora as impressoras e emite notas.");
     console.log("  Para sair, feche esta janela.\n");
     if (!process.env.FISCAL_NO_BROWSER) abrirNavegador(`http://localhost:${PORTA}`);
   });

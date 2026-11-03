@@ -1,9 +1,9 @@
 // Página de configuração do Assistente (abre em http://localhost:3777).
-export const VERSAO = "1.0.1";
+export const VERSAO = "2.0.0";
 
 export function paginaInicial(token) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Assistente Fiscal · Brim3D</title>
+<title>Brim3D Desktop</title>
 <style>
 :root{--p:#0b6fa4;--bg:#f4f7fb;--card:#fff;--b:#dbe3ee;--t:#0f172a;--m:#64748b;--ok:#059669;--er:#dc2626;--wa:#d97706}
 *{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--t)}
@@ -22,9 +22,19 @@ button.sec{background:#e2e8f0;color:var(--t)}button:disabled{opacity:.5;cursor:d
 .msg{margin-top:10px;font-size:14px}.msg.er{color:var(--er);background:none}.msg.ok{color:var(--ok);background:none}
 small{color:var(--m)}ul{margin:6px 0 0 18px;padding:0;color:var(--m);font-size:14px}
 </style></head><body><div class="wrap">
-<h1>Assistente Fiscal</h1><p class="sub">Brim3D · emite a nota fiscal usando o certificado deste computador. Deixe esta janela aberta enquanto emitir notas.</p>
+<h1>Brim3D Desktop</h1><p class="sub">Monitora as impressoras da sua farm e emite a nota fiscal com o certificado deste computador. Deixe esta janela aberta.</p>
 
-<div class="card"><h2>1. Código de conexão</h2>
+<div class="card"><h2>Monitor da Farm</h2>
+<div id="monStatus" class="row"><span class="badge wa">Carregando…</span></div>
+<div id="monPar" style="display:none"><label>Código de pareamento (no sistema: Configurações › Brim3D Desktop)</label>
+<div class="row"><input type="text" id="monCod" placeholder="Cole aqui o código" autocomplete="off" style="flex:1"><button onclick="salvarCodigo()">Parear</button></div></div>
+<div id="monLista" style="margin-top:12px"></div>
+<div id="monAcoes" class="row" style="margin-top:10px;display:none"><button class="sec" onclick="procurar()">Procurar impressoras na rede</button><small id="monBusca"></small></div>
+<div id="monMsg" class="msg"></div></div>
+
+<div id="fiscalAviso" class="card" style="display:none"><h2>Assistente Fiscal</h2><p style="margin:0;color:var(--m);font-size:14px">O plano da sua conta não inclui a emissão de NF-e. Faça o upgrade no sistema (menu Plano) para liberar.</p></div>
+<div id="fiscalCards">
+<div class="card"><h2>1. Código de conexão do Assistente Fiscal</h2>
 <p style="margin:0 0 8px;color:var(--m);font-size:14px">Cole este código no sistema (Fiscal › Configurações) uma única vez, para ele reconhecer este computador.</p>
 <div class="row"><span class="code" id="tok">${token}</span><button class="sec" onclick="navigator.clipboard.writeText(document.getElementById('tok').textContent);this.textContent='Copiado!'">Copiar</button></div></div>
 
@@ -45,6 +55,7 @@ small{color:var(--m)}ul{margin:6px 0 0 18px;padding:0;color:var(--m);font-size:1
 <div class="row"><button class="sec" onclick="testar('homologacao')">Testar homologação</button><button class="sec" onclick="testar('producao')">Testar produção</button></div>
 <div id="testMsg" class="msg"></div></div>
 
+</div>
 <p><small>Versão ${VERSAO}. As notas emitidas ficam copiadas aqui no computador (pasta do Assistente). O certificado nunca sai deste computador.</small></p>
 </div>
 <script>
@@ -76,5 +87,39 @@ async function removerCert(){if(!confirm('Remover o certificado deste computador
 async function salvarProd(){const v=document.getElementById('prod').checked;if(v&&!confirm('Liberar a emissão de notas com valor fiscal?')){document.getElementById('prod').checked=false;return;}await api('/config',{producaoLiberada:v});}
 async function testar(a){set('testMsg','Conectando…','');const r=await api('/sefaz/status',{ambiente:a});set('testMsg',r.ok?('SEFAZ respondeu: '+r.xMotivo+(r.online?' ✔':'')):('Falhou: '+(r.erro||'sem resposta')),r.ok&&r.online?'ok':'er');}
 carregar();
+
+const TIPO={bambu_lan:'Bambu LAN',bambu_nuvem:'Bambu nuvem',moonraker:'Klipper',elegoo_sdcp:'Elegoo',octoprint:'OctoPrint',snapmaker2:'Snapmaker 2.0'};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function carregarMonitor(){
+ let m;try{m=await api('/monitor/status');}catch{return;}
+ const st=document.getElementById('monStatus');let h;
+ if(!m.temCodigo){h='<span class="badge wa">Não pareado</span>';}
+ else if(m.erro&&!m.pareado){h='<span class="badge er">'+esc(m.erro)+'</span>';}
+ else if(!m.pareado){h='<span class="badge wa">Conectando…</span>';}
+ else if(m.plano&&!m.plano.monitor){h='<span class="badge wa">Pareado</span> <span>O plano da sua conta não inclui o Monitor.</span>';}
+ else{h='<span class="badge ok">Pareado</span> <span>'+esc(m.email||'')+'</span>'+(m.ultimoEnvio?'<small>Último envio: '+new Date(m.ultimoEnvio).toLocaleTimeString('pt-BR')+'</small>':'')+(m.erro?' <span class="badge er">'+esc(m.erro)+'</span>':'');}
+ st.innerHTML=h;
+ document.getElementById('monPar').style.display=(!m.temCodigo||(m.erro&&!m.pareado))?'':'none';
+ const ok=m.temCodigo&&m.pareado&&m.plano&&m.plano.monitor;
+ document.getElementById('monAcoes').style.display=ok?'':'none';
+ document.getElementById('monBusca').textContent=m.procurando?'Procurando…':(m.ultimaBusca?'Última busca: '+m.descobertas+' encontrada(s)':'');
+ const fiscalOk=!(m.temCodigo&&m.plano&&!m.plano.fiscal);
+ document.getElementById('fiscalCards').style.display=fiscalOk?'':'none';
+ document.getElementById('fiscalAviso').style.display=fiscalOk?'none':'';
+ let l='';
+ if(ok&&(m.impressoras||[]).length===0)l='<small>Nenhuma impressora com tipo de conexão cadastrada. No sistema, abra Impressoras e informe como cada uma se conecta (ou adicione as que forem encontradas na rede).</small>';
+ else if(ok){l='<table style="width:100%;border-collapse:collapse;font-size:14px">'+m.impressoras.map(i=>{
+  const cor=i.status==='imprimindo'?'ok':(i.status==='erro'||i.status==='offline'?'er':'wa');
+  let extra='';
+  if(i.precisaCodigo||(i.tipo.indexOf('bambu')===0&&i.erro&&/acesso/i.test(i.erro))) extra='<div class="row" style="margin-top:6px"><input type="password" placeholder="Código de acesso da impressora" id="ac_'+esc(i.serial)+'" style="flex:1" autocomplete="off"><button class="sec" data-s="'+esc(i.serial)+'" onclick="salvarAcesso(this.dataset.s)">Salvar</button></div><small>Está na tela da impressora (Configurações › Rede). Fica só neste computador.</small>';
+  else if(i.erro) extra='<small>'+esc(i.erro)+'</small>';
+  return '<tr style="border-top:1px solid var(--b)"><td style="padding:8px 4px"><b>'+esc(i.nome)+'</b><br><small>'+esc(TIPO[i.tipo]||i.tipo)+(i.ip?' · '+esc(i.ip):'')+'</small>'+extra+'</td><td style="text-align:right;white-space:nowrap"><span class="badge '+cor+'">'+esc(i.status)+(i.status==='imprimindo'?' '+i.progresso+'%':'')+'</span></td></tr>';}).join('')+'</table>';}
+ const foco=document.activeElement&&document.activeElement.tagName==='INPUT'&&document.getElementById('monLista').contains(document.activeElement);
+ if(!foco)document.getElementById('monLista').innerHTML=l;
+}
+async function salvarCodigo(){const c=document.getElementById('monCod').value.trim();if(!c){set('monMsg','Cole o código de pareamento.','er');return;}await api('/monitor/config',{codigo:c});set('monMsg','Código salvo. Conectando…','ok');setTimeout(carregarMonitor,1500);}
+async function salvarAcesso(serial){const v=document.getElementById('ac_'+serial).value.trim();if(!v)return;await api('/monitor/acesso',{serial,codigo:v});set('monMsg','Código de acesso salvo.','ok');setTimeout(carregarMonitor,2500);}
+async function procurar(){await api('/monitor/procurar',{});set('monMsg','Procurando impressoras na rede… elas aparecem no sistema em Impressoras.','ok');setTimeout(carregarMonitor,1000);}
+carregarMonitor();setInterval(carregarMonitor,5000);
 </script></body></html>`;
 }

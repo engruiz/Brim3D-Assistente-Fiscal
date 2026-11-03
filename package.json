@@ -1,16 +1,17 @@
 {
-  "name": "brim3d-assistente-fiscal",
-  "version": "1.0.1",
+  "name": "brim3d-desktop",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "description": "Assistente Fiscal do Brim3D: emite NF-e (MEI) usando o certificado A1 guardado neste computador.",
+  "description": "Brim3D Desktop: Monitor das impressoras (Bambu, Klipper…) e Assistente Fiscal (NF-e) em um programa só para Windows.",
   "scripts": {
     "start": "node src/server.js",
-    "build:win": "bun build --compile --target=bun-windows-x64 src/server.js --outfile dist/Brim3D-Assistente-Fiscal.exe"
+    "build:win": "bun build --compile --target=bun-windows-x64 src/server.js --outfile dist/Brim3D-Desktop.exe"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.12",
     "fast-xml-parser": "^5.11.2",
+    "mqtt": "^5.16.1",
     "node-forge": "^1.4.2",
     "xml-crypto": "^6.4.0"
   }

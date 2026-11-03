@@ -1,4 +1,4 @@
-name: Publicar Assistente Fiscal
+name: Publicar Brim3D Desktop
 on:
   push:
     branches: [main, master]
@@ -22,11 +22,12 @@ jobs:
       - name: Compilar o .exe com o logo da Brim3D
         run: |
           mkdir -p dist
-          bun build --compile --target=bun-windows-x64 --windows-icon=icon.ico --windows-title="Brim3D Assistente Fiscal" --windows-publisher="Brim3D" --windows-description="Assistente Fiscal do Brim3D" src/server.js --outfile dist/Brim3D-Assistente-Fiscal.exe
+          bun build --compile --target=bun-windows-x64 --windows-icon=icon.ico --windows-title="Brim3D Desktop" --windows-publisher="Brim3D" --windows-description="Brim3D Desktop - Monitor da Farm e Assistente Fiscal" src/server.js --outfile dist/Brim3D-Desktop.exe
+          cp dist/Brim3D-Desktop.exe dist/Brim3D-Assistente-Fiscal.exe
       - name: Publicar a release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSAO=$(node -p "require('./package.json').version"); TAG="v$VERSAO"
           gh release delete "$TAG" --yes --cleanup-tag || true
-          gh release create "$TAG" dist/Brim3D-Assistente-Fiscal.exe --title "Assistente Fiscal $VERSAO" --notes "Versão $VERSAO do Assistente Fiscal do Brim3D." --latest
+          gh release create "$TAG" dist/Brim3D-Desktop.exe dist/Brim3D-Assistente-Fiscal.exe --title "Brim3D Desktop $VERSAO" --notes "Versão $VERSAO do Brim3D Desktop (Monitor da Farm + Assistente Fiscal). O arquivo Brim3D-Assistente-Fiscal.exe é a mesma coisa, mantido para links antigos." --latest
