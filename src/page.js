@@ -1,5 +1,5 @@
 // Página de configuração do Assistente (abre em http://localhost:3777).
-export const VERSAO = "2.1.1";
+export const VERSAO = "2.2.0";
 
 export function paginaInicial(token) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -88,7 +88,7 @@ async function salvarProd(){const v=document.getElementById('prod').checked;if(v
 async function testar(a){set('testMsg','Conectando…','');const r=await api('/sefaz/status',{ambiente:a});set('testMsg',r.ok?('SEFAZ respondeu: '+r.xMotivo+(r.online?' ✔':'')):('Falhou: '+(r.erro||'sem resposta')),r.ok&&r.online?'ok':'er');}
 carregar();
 
-const TIPO={bambu_lan:'Bambu LAN',bambu_nuvem:'Bambu nuvem',moonraker:'Klipper',elegoo_sdcp:'Elegoo',octoprint:'OctoPrint',snapmaker2:'Snapmaker 2.0'};
+const TIPO={bambu_lan:'Bambu LAN',bambu_nuvem:'Bambu nuvem',moonraker:'Klipper',elegoo_sdcp:'Elegoo',anycubic_lan:'Anycubic LAN',octoprint:'OctoPrint',prusalink:'PrusaLink',snapmaker2:'Snapmaker 2.0'};
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function carregarMonitor(){
  let m;try{m=await api('/monitor/status');}catch{return;}
@@ -111,14 +111,15 @@ async function carregarMonitor(){
  else if(ok){l='<table style="width:100%;border-collapse:collapse;font-size:14px">'+m.impressoras.map(i=>{
   const cor=i.status==='imprimindo'?'ok':(i.status==='erro'||i.status==='offline'?'er':'wa');
   let extra='';
-  if(i.precisaCodigo||(i.tipo.indexOf('bambu')===0&&i.erro&&/acesso/i.test(i.erro))) extra='<div class="row" style="margin-top:6px"><input type="password" placeholder="Código de acesso da impressora" id="ac_'+esc(i.serial)+'" style="flex:1" autocomplete="off"><button class="sec" data-s="'+esc(i.serial)+'" onclick="salvarAcesso(this.dataset.s)">Salvar</button></div><small>Está na tela da impressora (Configurações › Rede). Fica só neste computador.</small>';
+  const pedeCred=i.cred&&i.cred.chave&&(i.precisaCodigo||/acesso|chave de api|senha|incorret/i.test(i.erro||''));
+  if(pedeCred) extra='<div class="row" style="margin-top:6px"><input type="password" placeholder="'+esc(i.cred.rotulo)+'" id="ac_'+esc(i.cred.chave)+'" style="flex:1" autocomplete="off"><button class="sec" data-s="'+esc(i.cred.chave)+'" onclick="salvarAcesso(this.dataset.s)">Salvar</button></div><small>'+esc(i.erro||'')+' Fica só neste computador.</small>';
   else if(i.erro) extra='<small>'+esc(i.erro)+'</small>';
   return '<tr style="border-top:1px solid var(--b)"><td style="padding:8px 4px"><b>'+esc(i.nome)+'</b><br><small>'+esc(TIPO[i.tipo]||i.tipo)+(i.ip?' · '+esc(i.ip):'')+'</small>'+extra+'</td><td style="text-align:right;white-space:nowrap"><span class="badge '+cor+'">'+esc(i.status)+(i.status==='imprimindo'?' '+i.progresso+'%':'')+'</span></td></tr>';}).join('')+'</table>';}
  const foco=document.activeElement&&document.activeElement.tagName==='INPUT'&&document.getElementById('monLista').contains(document.activeElement);
  if(!foco)document.getElementById('monLista').innerHTML=l;
 }
 async function salvarCodigo(){const c=document.getElementById('monCod').value.trim();if(!c){set('monMsg','Cole o código de pareamento.','er');return;}await api('/monitor/config',{codigo:c});set('monMsg','Código salvo. Conectando…','ok');setTimeout(carregarMonitor,1500);}
-async function salvarAcesso(serial){const v=document.getElementById('ac_'+serial).value.trim();if(!v)return;await api('/monitor/acesso',{serial,codigo:v});set('monMsg','Código de acesso salvo.','ok');setTimeout(carregarMonitor,2500);}
+async function salvarAcesso(chave){const v=document.getElementById('ac_'+chave).value.trim();if(!v)return;await api('/monitor/acesso',{chave,codigo:v});set('monMsg','Código de acesso salvo.','ok');setTimeout(carregarMonitor,2500);}
 async function procurar(){await api('/monitor/procurar',{});set('monMsg','Procurando impressoras na rede… elas aparecem no sistema em Impressoras.','ok');setTimeout(carregarMonitor,1000);}
 carregarMonitor();setInterval(carregarMonitor,5000);
 </script></body></html>`;

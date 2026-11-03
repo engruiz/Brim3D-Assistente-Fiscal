@@ -88,7 +88,7 @@ export function criarServidor() {
       const b = await lerCorpo(req);
 
       if (url.pathname === "/monitor/config") { definirCodigo(b.codigo); atualizarAgora(); return responder(res, 200, { ok: true }, cors); }
-      if (url.pathname === "/monitor/acesso") { definirAcesso(b.serial, b.codigo); atualizarAgora(); return responder(res, 200, { ok: true }, cors); }
+      if (url.pathname === "/monitor/acesso") { definirAcesso(b.chave || b.serial, b.codigo); atualizarAgora(); return responder(res, 200, { ok: true }, cors); }
       if (url.pathname === "/monitor/procurar") { procurarImpressoras(); return responder(res, 200, { ok: true }, cors); }
       if (url.pathname === "/config") {
         if (typeof b.producaoLiberada === "boolean") cfg.producaoLiberada = b.producaoLiberada;

@@ -4,6 +4,7 @@ import os from "node:os";
 import tls from "node:tls";
 import net from "node:net";
 import { identificarMoonraker } from "./moonraker.js";
+import { lerInfoAnycubic } from "./anycubic.js";
 
 const MODELOS_BAMBU = { "BL-P001": "X1 Carbon", "BL-P002": "X1", C13: "X1E", C11: "P1P", C12: "P1S", N1: "A1 Mini", N2S: "A1", O1D: "H2D", O1S: "H2S", O1E: "H2D Pro" };
 
@@ -45,6 +46,7 @@ function interfacesIPv4() {
 }
 
 function sub_redes() {
+  if (process.env.MONITOR_PREFIXOS) return process.env.MONITOR_PREFIXOS.split(",");
   const nets = [];
   for (const lista of Object.values(os.networkInterfaces())) {
     for (const a of lista || []) {
@@ -65,11 +67,16 @@ export async function descobrirMoonraker(prefixos = sub_redes()) {
       const ip = alvos[idx++];
       try {
         const info = await identificarMoonraker(ip, 700);
-        achadas.push({ chave: `moonraker:${ip}`, tipo: "moonraker", ip, serial: "", nome: info.hostname || `Klipper ${ip}`, modelo: "" });
+        achadas.push({ chave: `moonraker:${ip}`, tipo: "moonraker", ip, serial: "", host: info.hostname || "", nome: info.hostname || `Klipper ${ip}`, modelo: "" });
       } catch { /* não é Moonraker */ }
     }
   };
   await Promise.all(Array.from({ length: 64 }, trabalhador));
+  // O nome da máquina serve de "serial" (para acompanhar mudança de IP) só quando é único e não é um nome genérico.
+  const GENERICOS = /^(localhost|raspberrypi|mainsail.*|fluidd.*|klipper.*|octopi|orangepi.*|creality.*|armbian.*|debian|ubuntu|mks.*|btt.*)$/i;
+  const contagem = new Map();
+  for (const a of achadas) contagem.set(a.host.toLowerCase(), (contagem.get(a.host.toLowerCase()) || 0) + 1);
+  for (const a of achadas) if (a.host && !GENERICOS.test(a.host) && contagem.get(a.host.toLowerCase()) === 1) { a.serial = `host:${a.host}`; a.chave = a.serial; }
   return achadas;
 }
 
@@ -177,6 +184,27 @@ export async function descobrirElegooPorPorta(prefixos = sub_redes()) {
       if (!(await portaAberta(ip, 3030))) continue;
       const d = await identificarElegoo(ip);
       if (d) achadas.push({ chave: `elegoo:${d.id}`, tipo: "elegoo_sdcp", ip, serial: d.id, nome: d.nome || d.maq || `Elegoo ${ip}`, modelo: /elegoo/i.test(d.maq) ? d.maq : `Elegoo ${d.maq || "Centauri Carbon"}`.trim() });
+    }
+  };
+  await Promise.all(Array.from({ length: 64 }, trabalhador));
+  return achadas;
+}
+
+// Anycubic (Kobra 3 / S1): a porta 18910 responde /info com o número de série (cn) e o modo (LAN ou nuvem).
+export async function descobrirAnycubic(prefixos = sub_redes()) {
+  const alvos = [];
+  for (const p of prefixos) for (let i = 1; i < 255; i++) alvos.push(`${p}.${i}`);
+  const achadas = [];
+  let idx = 0;
+  const trabalhador = async () => {
+    while (idx < alvos.length) {
+      const ip = alvos[idx++];
+      if (!(await portaAberta(ip, 18910))) continue;
+      try {
+        const info = await lerInfoAnycubic(ip, 2500);
+        const modelo = String(info.modelName || "Anycubic Kobra").replace(/^anycubic\s*/i, "");
+        achadas.push({ chave: String(info.cn), tipo: "anycubic_lan", ip, serial: String(info.cn), nome: info.deviceName || info.printerName || `Anycubic ${modelo}`, modelo: `Anycubic ${modelo}` });
+      } catch { /* não é Anycubic */ }
     }
   };
   await Promise.all(Array.from({ length: 64 }, trabalhador));

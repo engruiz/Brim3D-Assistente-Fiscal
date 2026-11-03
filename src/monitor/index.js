@@ -3,11 +3,24 @@ import { lerMonitor, obterAcesso, temAcesso } from "./store.js";
 import { consultarMoonraker } from "./moonraker.js";
 import { garantirBambu, pararBambuQueSobrou, lerBambu } from "./bambu.js";
 import { garantirElegoo, pararElegooQueSobrou, lerElegoo } from "./elegoo.js";
-import { descobrirBambu, descobrirElegoo, descobrirElegooPorPorta, descobrirBambuPorPorta, descobrirMoonraker } from "./discover.js";
+import { garantirAnycubic, pararAnycubicQueSobrou, lerAnycubic } from "./anycubic.js";
+import { consultarOctoPrint } from "./octoprint.js";
+import { consultarPrusaLink } from "./prusalink.js";
+import { descobrirBambu, descobrirElegoo, descobrirElegooPorPorta, descobrirBambuPorPorta, descobrirMoonraker, descobrirAnycubic } from "./discover.js";
 
 const INTERVALO_ATIVO = Number(process.env.MONITOR_INTERVALO_MS || 15000);
 const INTERVALO_OCIOSO = Number(process.env.MONITOR_INTERVALO_OCIOSO_MS || 45000);
 const TIPOS_BAMBU = ["bambu_lan", "bambu_nuvem"];
+const offlineDesde = new Map(); // id da impressora -> quando ficou offline (para procurar o IP novo)
+let proximaBuscaRapida = 0;
+
+// Credencial local (código de acesso / chave de API) que cada tipo precisa. Fica só neste computador.
+export function credencialDe(p) {
+  if (TIPOS_BAMBU.includes(p.conexao_tipo)) return { rotulo: "Código de acesso da impressora", chave: p.conexao_serial || "" };
+  if (p.conexao_tipo === "octoprint") return { rotulo: "Chave de API do OctoPrint", chave: `id:${p.id}` };
+  if (p.conexao_tipo === "prusalink") return { rotulo: "Chave de API do PrusaLink", chave: `id:${p.id}` };
+  return null;
+}
 
 const estado = { pareado: false, plano: null, email: null, impressoras: [], ultimoEnvio: null, erro: "", descobertas: 0, procurando: false, ultimaBusca: null };
 let log = () => {};
@@ -53,6 +66,21 @@ async function lerImpressora(p) {
       garantirElegoo({ ip: base.ip, log });
       return { ...base, ...(lerElegoo(base.ip) || { status: "offline", erro: "conectando…" }) };
     }
+    if (p.conexao_tipo === "anycubic_lan") {
+      if (!base.ip) return { ...base, status: "offline", erro: "Falta o IP" };
+      garantirAnycubic({ ip: base.ip, log });
+      return { ...base, ...(lerAnycubic(base.ip) || { status: "offline", erro: "conectando…" }) };
+    }
+    if (p.conexao_tipo === "octoprint" || p.conexao_tipo === "prusalink") {
+      if (!base.ip) return { ...base, status: "offline", erro: "Falta o IP" };
+      const cred = credencialDe(p);
+      const chave = obterAcesso(cred.chave);
+      if (!chave) return { ...base, status: "offline", erro: `Falta a ${cred.rotulo.toLowerCase()} (informe na janela do programa)`, precisaCodigo: true };
+      try {
+        const leitor = p.conexao_tipo === "octoprint" ? consultarOctoPrint : consultarPrusaLink;
+        return { ...base, ...(await leitor(base.ip, chave)) };
+      } catch (e) { return { ...base, status: "offline", erro: e.message || String(e), precisaCodigo: !!e.credencial }; }
+    }
     return { ...base, status: "offline", erro: "Este tipo de conexão ainda não é suportado nesta versão" };
   } catch (e) {
     return { ...base, status: "offline", erro: e.message || String(e) };
@@ -70,16 +98,28 @@ async function enviar(lidas) {
   estado.ultimoEnvio = new Date().toISOString();
 }
 
+// Se uma impressora já cadastrada (reconhecida pelo serial/ID) apareceu com outro IP, atualiza o cadastro no sistema.
+async function seguirIps(todas) {
+  const mudancas = [];
+  for (const d of todas) {
+    if (!d.serial || !d.ip) continue;
+    const p = impressorasSite.find((x) => x.conexao_serial && String(x.conexao_serial).toLowerCase() === String(d.serial).toLowerCase());
+    if (p && p.conexao_ip !== d.ip) { mudancas.push({ serial: d.serial, ip: d.ip }); log(`IP de "${p.name}" mudou: ${p.conexao_ip} -> ${d.ip}`); p.conexao_ip = d.ip; }
+  }
+  if (mudancas.length) await chamar("desktopPareamento", { acao: "atualizar_ip", impressoras: mudancas });
+}
+
 export async function procurarImpressoras() {
   if (estado.procurando) return;
   estado.procurando = true;
   try {
-    const [b, bp, m, el, elp] = await Promise.all([descobrirBambu().catch(() => []), descobrirBambuPorPorta().catch(() => []), descobrirMoonraker().catch(() => []), descobrirElegoo().catch(() => []), descobrirElegooPorPorta().catch(() => [])]);
+    const [b, bp, m, el, elp, ac] = await Promise.all([descobrirBambu().catch(() => []), descobrirBambuPorPorta().catch(() => []), descobrirMoonraker().catch(() => []), descobrirElegoo().catch(() => []), descobrirElegooPorPorta().catch(() => []), descobrirAnycubic().catch(() => [])]);
     const porChave = new Map();
-    for (const d of [...bp, ...elp, ...b, ...m, ...el]) porChave.set(d.chave, { ...(porChave.get(d.chave) || {}), ...d }); // SSDP (b) tem nome/modelo melhores
+    for (const d of [...bp, ...elp, ...ac, ...b, ...m, ...el]) porChave.set(d.chave, { ...(porChave.get(d.chave) || {}), ...d }); // SSDP (b) tem nome/modelo melhores
     const todas = [...porChave.values()];
     estado.descobertas = todas.length; estado.ultimaBusca = new Date().toISOString();
     if (todas.length) await chamar("desktopPareamento", { acao: "descobertas", impressoras: todas });
+    await seguirIps(todas);
     log(`Busca na rede: ${todas.length} impressora(s).`);
   } catch (e) { estado.erro = e.message; log(`Busca falhou: ${e.message}`); }
   finally { estado.procurando = false; }
@@ -91,13 +131,20 @@ async function ciclo() {
     if (!lerMonitor().codigo) { estado.pareado = false; estado.erro = ""; return; }
     await consultarSite();
     estado.erro = "";
-    if (!estado.plano?.monitor) { pararBambuQueSobrou(new Set()); pararElegooQueSobrou(new Set()); estado.impressoras = []; return; }
+    if (!estado.plano?.monitor) { pararBambuQueSobrou(new Set()); pararElegooQueSobrou(new Set()); pararAnycubicQueSobrou(new Set()); estado.impressoras = []; return; }
     if (Date.now() >= proximaBusca) { proximaBusca = Date.now() + 10 * 60000; procurarImpressoras(); }
     const monitoradas = impressorasSite.filter((p) => p.conexao_tipo);
     pararBambuQueSobrou(new Set(monitoradas.filter((p) => TIPOS_BAMBU.includes(p.conexao_tipo)).map((p) => p.conexao_serial)));
     pararElegooQueSobrou(new Set(monitoradas.filter((p) => p.conexao_tipo === "elegoo_sdcp").map((p) => p.conexao_ip)));
+    pararAnycubicQueSobrou(new Set(monitoradas.filter((p) => p.conexao_tipo === "anycubic_lan").map((p) => p.conexao_ip)));
     const lidas = await Promise.all(monitoradas.map(lerImpressora));
-    estado.impressoras = lidas.map((l) => ({ id: l.id, nome: l.name, tipo: l.tipo, ip: l.ip, serial: l.serial, status: l.status || "offline", progresso: l.progress_pct ?? 0, erro: l.erro || "", precisaCodigo: !!l.precisaCodigo }));
+    // Offline há mais de 90 s e reconhecível por serial/ID: procura na rede (no máx. a cada 3 min) caso o IP tenha mudado.
+    for (const l of lidas) {
+      if (l.status === "offline" && l.serial) { if (!offlineDesde.has(l.id)) offlineDesde.set(l.id, Date.now()); }
+      else offlineDesde.delete(l.id);
+    }
+    if (Date.now() >= proximaBuscaRapida && [...offlineDesde.values()].some((t) => Date.now() - t > 90000)) { proximaBuscaRapida = Date.now() + 3 * 60000; procurarImpressoras(); }
+    estado.impressoras = lidas.map((l) => ({ id: l.id, nome: l.name, tipo: l.tipo, ip: l.ip, serial: l.serial, status: l.status || "offline", progresso: l.progress_pct ?? 0, erro: l.erro || "", precisaCodigo: !!l.precisaCodigo, cred: credencialDe(impressorasSite.find((x) => x.id === l.id) || {}) }));
     await enviar(lidas);
     if (lidas.some((l) => ["imprimindo", "pausado"].includes(l.status))) espera = INTERVALO_ATIVO;
   } catch (e) {
@@ -121,5 +168,5 @@ export function atualizarAgora() { proximaConsultaSite = 0; proximaBusca = 0; cl
 
 export function statusMonitor() {
   const m = lerMonitor();
-  return { ...estado, temCodigo: !!m.codigo, impressoras: estado.impressoras.map((i) => ({ ...i, temAcesso: i.serial ? temAcesso(i.serial) : false })) };
+  return { ...estado, temCodigo: !!m.codigo, impressoras: estado.impressoras.map((i) => ({ ...i, temAcesso: i.cred?.chave ? temAcesso(i.cred.chave) : false })) };
 }
