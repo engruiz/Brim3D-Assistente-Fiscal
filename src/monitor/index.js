@@ -2,7 +2,7 @@
 import { lerMonitor, obterAcesso, temAcesso } from "./store.js";
 import { consultarMoonraker } from "./moonraker.js";
 import { garantirBambu, pararBambuQueSobrou, lerBambu } from "./bambu.js";
-import { descobrirBambu, descobrirMoonraker } from "./discover.js";
+import { descobrirBambu, descobrirBambuPorPorta, descobrirMoonraker } from "./discover.js";
 
 const INTERVALO_ATIVO = Number(process.env.MONITOR_INTERVALO_MS || 15000);
 const INTERVALO_OCIOSO = Number(process.env.MONITOR_INTERVALO_OCIOSO_MS || 45000);
@@ -68,8 +68,10 @@ export async function procurarImpressoras() {
   if (estado.procurando) return;
   estado.procurando = true;
   try {
-    const [b, m] = await Promise.all([descobrirBambu().catch(() => []), descobrirMoonraker().catch(() => [])]);
-    const todas = [...b, ...m];
+    const [b, bp, m] = await Promise.all([descobrirBambu().catch(() => []), descobrirBambuPorPorta().catch(() => []), descobrirMoonraker().catch(() => [])]);
+    const porChave = new Map();
+    for (const d of [...bp, ...b, ...m]) porChave.set(d.chave, { ...(porChave.get(d.chave) || {}), ...d }); // SSDP (b) tem nome/modelo melhores
+    const todas = [...porChave.values()];
     estado.descobertas = todas.length; estado.ultimaBusca = new Date().toISOString();
     if (todas.length) await chamar("desktopPareamento", { acao: "descobertas", impressoras: todas });
     log(`Busca na rede: ${todas.length} impressora(s).`);

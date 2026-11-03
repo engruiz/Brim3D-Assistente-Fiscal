@@ -1,5 +1,5 @@
 // Página de configuração do Assistente (abre em http://localhost:3777).
-export const VERSAO = "2.0.0";
+export const VERSAO = "2.0.1";
 
 export function paginaInicial(token) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

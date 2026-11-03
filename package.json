@@ -1,6 +1,6 @@
 {
   "name": "brim3d-desktop",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "type": "module",
   "description": "Brim3D Desktop: Monitor das impressoras (Bambu, Klipper…) e Assistente Fiscal (NF-e) em um programa só para Windows.",
