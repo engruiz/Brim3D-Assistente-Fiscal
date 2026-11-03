@@ -3,7 +3,7 @@ import { lerMonitor, obterAcesso, temAcesso } from "./store.js";
 import { consultarMoonraker } from "./moonraker.js";
 import { garantirBambu, pararBambuQueSobrou, lerBambu } from "./bambu.js";
 import { garantirElegoo, pararElegooQueSobrou, lerElegoo } from "./elegoo.js";
-import { descobrirBambu, descobrirElegoo, descobrirBambuPorPorta, descobrirMoonraker } from "./discover.js";
+import { descobrirBambu, descobrirElegoo, descobrirElegooPorPorta, descobrirBambuPorPorta, descobrirMoonraker } from "./discover.js";
 
 const INTERVALO_ATIVO = Number(process.env.MONITOR_INTERVALO_MS || 15000);
 const INTERVALO_OCIOSO = Number(process.env.MONITOR_INTERVALO_OCIOSO_MS || 45000);
@@ -74,9 +74,9 @@ export async function procurarImpressoras() {
   if (estado.procurando) return;
   estado.procurando = true;
   try {
-    const [b, bp, m, el] = await Promise.all([descobrirBambu().catch(() => []), descobrirBambuPorPorta().catch(() => []), descobrirMoonraker().catch(() => []), descobrirElegoo().catch(() => [])]);
+    const [b, bp, m, el, elp] = await Promise.all([descobrirBambu().catch(() => []), descobrirBambuPorPorta().catch(() => []), descobrirMoonraker().catch(() => []), descobrirElegoo().catch(() => []), descobrirElegooPorPorta().catch(() => [])]);
     const porChave = new Map();
-    for (const d of [...bp, ...b, ...m, ...el]) porChave.set(d.chave, { ...(porChave.get(d.chave) || {}), ...d }); // SSDP (b) tem nome/modelo melhores
+    for (const d of [...bp, ...elp, ...b, ...m, ...el]) porChave.set(d.chave, { ...(porChave.get(d.chave) || {}), ...d }); // SSDP (b) tem nome/modelo melhores
     const todas = [...porChave.values()];
     estado.descobertas = todas.length; estado.ultimaBusca = new Date().toISOString();
     if (todas.length) await chamar("desktopPareamento", { acao: "descobertas", impressoras: todas });

@@ -2,6 +2,7 @@
 import dgram from "node:dgram";
 import os from "node:os";
 import tls from "node:tls";
+import net from "node:net";
 import { identificarMoonraker } from "./moonraker.js";
 
 const MODELOS_BAMBU = { "BL-P001": "X1 Carbon", "BL-P002": "X1", C13: "X1E", C11: "P1P", C12: "P1S", N1: "A1 Mini", N2S: "A1", O1D: "H2D", O1S: "H2S", O1E: "H2D Pro" };
@@ -133,4 +134,51 @@ export function descobrirElegoo(ms = 4000) {
     });
     setTimeout(fim, ms);
   });
+}
+
+// Elegoo por varredura: testa a porta 3030 (WebSocket) em cada IP da sub-rede. Mais confiável que o broadcast UDP
+// quando o firewall do Windows ou o roteador bloqueia a resposta.
+function portaAberta(ip, porta, ms = 600) {
+  return new Promise((resolve) => {
+    const s = net.connect({ host: ip, port: porta, timeout: ms });
+    const fim = (v) => { try { s.destroy(); } catch { /* ok */ } resolve(v); };
+    s.on("connect", () => fim(true)); s.on("timeout", () => fim(false)); s.on("error", () => fim(false));
+  });
+}
+
+function identificarElegoo(ip, ms = 2500) {
+  return new Promise((resolve) => {
+    let feito = false, ws;
+    const fim = (v) => { if (!feito) { feito = true; try { ws?.close(); } catch { /* ok */ } resolve(v); } };
+    try { ws = new WebSocket(`ws://${ip}:3030/websocket`); } catch { return resolve(null); }
+    const pedido = (cmd) => JSON.stringify({ Id: "", Data: { Cmd: cmd, Data: {}, RequestID: Math.random().toString(16).slice(2), MainboardID: "", TimeStamp: Date.now(), From: 1 } });
+    ws.onopen = () => { try { ws.send(pedido(1)); ws.send(pedido(0)); } catch { /* ok */ } };
+    ws.onmessage = (ev) => {
+      try {
+        const j = JSON.parse(typeof ev.data === "string" ? ev.data : Buffer.from(ev.data).toString());
+        const a = j.Attributes || j.Data?.Attributes || {};
+        const id = j.MainboardID || a.MainboardID || j.Data?.MainboardID;
+        if (id || j.Status) fim({ id: String(id || ip), nome: a.Name || "", maq: a.MachineName || a.Name || "" });
+      } catch { /* ignora */ }
+    };
+    ws.onerror = () => fim(null); ws.onclose = () => fim(null);
+    setTimeout(() => fim(null), ms);
+  });
+}
+
+export async function descobrirElegooPorPorta(prefixos = sub_redes()) {
+  const alvos = [];
+  for (const p of prefixos) for (let i = 1; i < 255; i++) alvos.push(`${p}.${i}`);
+  const achadas = [];
+  let idx = 0;
+  const trabalhador = async () => {
+    while (idx < alvos.length) {
+      const ip = alvos[idx++];
+      if (!(await portaAberta(ip, 3030))) continue;
+      const d = await identificarElegoo(ip);
+      if (d) achadas.push({ chave: `elegoo:${d.id}`, tipo: "elegoo_sdcp", ip, serial: d.id, nome: d.nome || d.maq || `Elegoo ${ip}`, modelo: /elegoo/i.test(d.maq) ? d.maq : `Elegoo ${d.maq || "Centauri Carbon"}`.trim() });
+    }
+  };
+  await Promise.all(Array.from({ length: 64 }, trabalhador));
+  return achadas;
 }
