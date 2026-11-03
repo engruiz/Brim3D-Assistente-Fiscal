@@ -108,3 +108,29 @@ export async function descobrirBambuPorPorta(prefixos = sub_redes()) {
   await Promise.all(Array.from({ length: 64 }, trabalhador));
   return achadas;
 }
+
+// Elegoo (SDCP): broadcast "M99999" na porta UDP 3000; a impressora responde com um JSON.
+export function descobrirElegoo(ms = 4000) {
+  return new Promise((resolve) => {
+    const achadas = new Map();
+    const sock = dgram.createSocket("udp4");
+    const fim = () => { try { sock.close(); } catch { /* ok */ } resolve([...achadas.values()]); };
+    sock.on("error", fim);
+    sock.on("message", (msg, rinfo) => {
+      try {
+        const d = JSON.parse(msg.toString()).Data || {};
+        const id = d.MainboardID; if (!id) return;
+        const ip = d.MainboardIP || rinfo.address;
+        const maq = d.MachineName || "";
+        achadas.set(id, { chave: `elegoo:${id}`, tipo: "elegoo_sdcp", ip, serial: String(id), nome: d.Name || maq || `Elegoo ${ip}`, modelo: /elegoo/i.test(maq) ? maq : `Elegoo ${maq}`.trim() });
+      } catch { /* não é SDCP */ }
+    });
+    sock.bind(0, () => {
+      try { sock.setBroadcast(true); } catch { /* ok */ }
+      const alvos = new Set(["255.255.255.255"]);
+      for (const p of sub_redes()) alvos.add(`${p}.255`);
+      for (const a of alvos) { try { sock.send(Buffer.from("M99999"), 3000, a); } catch { /* ok */ } }
+    });
+    setTimeout(fim, ms);
+  });
+}

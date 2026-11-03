@@ -2,7 +2,8 @@
 import { lerMonitor, obterAcesso, temAcesso } from "./store.js";
 import { consultarMoonraker } from "./moonraker.js";
 import { garantirBambu, pararBambuQueSobrou, lerBambu } from "./bambu.js";
-import { descobrirBambu, descobrirBambuPorPorta, descobrirMoonraker } from "./discover.js";
+import { garantirElegoo, pararElegooQueSobrou, lerElegoo } from "./elegoo.js";
+import { descobrirBambu, descobrirElegoo, descobrirBambuPorPorta, descobrirMoonraker } from "./discover.js";
 
 const INTERVALO_ATIVO = Number(process.env.MONITOR_INTERVALO_MS || 15000);
 const INTERVALO_OCIOSO = Number(process.env.MONITOR_INTERVALO_OCIOSO_MS || 45000);
@@ -47,6 +48,11 @@ async function lerImpressora(p) {
       const s = lerBambu(base.serial);
       return { ...base, ...(s || { status: "offline", erro: "conectando…" }) };
     }
+    if (p.conexao_tipo === "elegoo_sdcp") {
+      if (!base.ip) return { ...base, status: "offline", erro: "Falta o IP" };
+      garantirElegoo({ ip: base.ip, log });
+      return { ...base, ...(lerElegoo(base.ip) || { status: "offline", erro: "conectando…" }) };
+    }
     return { ...base, status: "offline", erro: "Este tipo de conexão ainda não é suportado nesta versão" };
   } catch (e) {
     return { ...base, status: "offline", erro: e.message || String(e) };
@@ -68,9 +74,9 @@ export async function procurarImpressoras() {
   if (estado.procurando) return;
   estado.procurando = true;
   try {
-    const [b, bp, m] = await Promise.all([descobrirBambu().catch(() => []), descobrirBambuPorPorta().catch(() => []), descobrirMoonraker().catch(() => [])]);
+    const [b, bp, m, el] = await Promise.all([descobrirBambu().catch(() => []), descobrirBambuPorPorta().catch(() => []), descobrirMoonraker().catch(() => []), descobrirElegoo().catch(() => [])]);
     const porChave = new Map();
-    for (const d of [...bp, ...b, ...m]) porChave.set(d.chave, { ...(porChave.get(d.chave) || {}), ...d }); // SSDP (b) tem nome/modelo melhores
+    for (const d of [...bp, ...b, ...m, ...el]) porChave.set(d.chave, { ...(porChave.get(d.chave) || {}), ...d }); // SSDP (b) tem nome/modelo melhores
     const todas = [...porChave.values()];
     estado.descobertas = todas.length; estado.ultimaBusca = new Date().toISOString();
     if (todas.length) await chamar("desktopPareamento", { acao: "descobertas", impressoras: todas });
@@ -85,10 +91,11 @@ async function ciclo() {
     if (!lerMonitor().codigo) { estado.pareado = false; estado.erro = ""; return; }
     await consultarSite();
     estado.erro = "";
-    if (!estado.plano?.monitor) { pararBambuQueSobrou(new Set()); estado.impressoras = []; return; }
+    if (!estado.plano?.monitor) { pararBambuQueSobrou(new Set()); pararElegooQueSobrou(new Set()); estado.impressoras = []; return; }
     if (Date.now() >= proximaBusca) { proximaBusca = Date.now() + 10 * 60000; procurarImpressoras(); }
     const monitoradas = impressorasSite.filter((p) => p.conexao_tipo);
     pararBambuQueSobrou(new Set(monitoradas.filter((p) => TIPOS_BAMBU.includes(p.conexao_tipo)).map((p) => p.conexao_serial)));
+    pararElegooQueSobrou(new Set(monitoradas.filter((p) => p.conexao_tipo === "elegoo_sdcp").map((p) => p.conexao_ip)));
     const lidas = await Promise.all(monitoradas.map(lerImpressora));
     estado.impressoras = lidas.map((l) => ({ id: l.id, nome: l.name, tipo: l.tipo, ip: l.ip, serial: l.serial, status: l.status || "offline", progresso: l.progress_pct ?? 0, erro: l.erro || "", precisaCodigo: !!l.precisaCodigo }));
     await enviar(lidas);
