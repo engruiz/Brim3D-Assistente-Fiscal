@@ -1,20 +1,20 @@
-// Comunicação com a SEFAZ-SP (NF-e 4.00): SOAP 1.2 sobre HTTPS com o certificado A1 do emitente.
+// Comunicação com a SEFAZ de qualquer UF (NF-e 4.00): SOAP 1.2 sobre HTTPS com o certificado A1 do emitente.
 import https from "node:https";
 import { XMLParser } from "fast-xml-parser";
 import { assinar } from "./sign.js";
-import { onlyDigits, dhBrasilia, UF_CODE } from "./util.js";
+import { onlyDigits, dhBrasilia, UF_CODE, ufDaChave } from "./util.js";
+import { wsDe } from "./ufs.js";
 
 const NS = "http://www.portalfiscal.inf.br/nfe";
-const HOSTS = { producao: "nfe.fazenda.sp.gov.br", homologacao: "homologacao.nfe.fazenda.sp.gov.br" };
 
-// serviço -> { caminho, wsdl (namespace), operação }
+// serviço -> { path (só para testes locais), wsdl (namespace) }. A URL real e o método SOAP vêm de ufs.js, por UF.
 const SERVICOS = {
-  status: { path: "nfestatusservico4.asmx", wsdl: "NFeStatusServico4", op: "nfeStatusServicoNF" },
-  autorizacao: { path: "nfeautorizacao4.asmx", wsdl: "NFeAutorizacao4", op: "nfeAutorizacaoLote" },
-  retAutorizacao: { path: "nferetautorizacao4.asmx", wsdl: "NFeRetAutorizacao4", op: "nfeRetAutorizacaoLote" },
-  consulta: { path: "nfeconsultaprotocolo4.asmx", wsdl: "NFeConsultaProtocolo4", op: "nfeConsultaNF" },
-  inutilizacao: { path: "nfeinutilizacao4.asmx", wsdl: "NFeInutilizacao4", op: "nfeInutilizacaoNF" },
-  evento: { path: "nferecepcaoevento4.asmx", wsdl: "NFeRecepcaoEvento4", op: "nfeRecepcaoEvento" },
+  status: { path: "nfestatusservico4.asmx", wsdl: "NFeStatusServico4" },
+  autorizacao: { path: "nfeautorizacao4.asmx", wsdl: "NFeAutorizacao4" },
+  retAutorizacao: { path: "nferetautorizacao4.asmx", wsdl: "NFeRetAutorizacao4" },
+  consulta: { path: "nfeconsultaprotocolo4.asmx", wsdl: "NFeConsultaProtocolo4" },
+  inutilizacao: { path: "nfeinutilizacao4.asmx", wsdl: "NFeInutilizacao4" },
+  evento: { path: "nferecepcaoevento4.asmx", wsdl: "NFeRecepcaoEvento4" },
 };
 
 export class SefazError extends Error {
@@ -24,10 +24,11 @@ export class SefazError extends Error {
 const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: false, parseAttributeValue: false });
 export const parse = (xml) => parser.parse(xml);
 
-export function urlServico(servico, ambiente) {
+/** Endereço e método SOAP do serviço para a UF do emitente. */
+export function urlServico(servico, ambiente, uf) {
   const s = SERVICOS[servico];
-  if (process.env.FISCAL_SEFAZ_BASE) return `${process.env.FISCAL_SEFAZ_BASE}/ws/${s.path}`; // só para testes
-  return `https://${HOSTS[ambiente === "producao" ? "producao" : "homologacao"]}/ws/${s.path}`;
+  if (process.env.FISCAL_SEFAZ_BASE) return { url: `${process.env.FISCAL_SEFAZ_BASE}/ws/${s.path}`, metodo: wsDe("SP", ambiente, servico).metodo }; // só para testes
+  return wsDe(uf, ambiente, servico);
 }
 
 const agentes = new WeakMap();
@@ -47,19 +48,20 @@ function agenteDe(cert, ca) {
 }
 
 /** Envia uma mensagem SOAP e devolve o XML de dentro de <nfeResultMsg>. */
-export function soap(servico, mensagemXml, cert, { ambiente, timeoutMs = 45000, ca, urlOverride } = {}) {
+export function soap(servico, mensagemXml, cert, { ambiente, uf, timeoutMs = 45000, ca, urlOverride } = {}) {
   const s = SERVICOS[servico];
   const wsdlNs = `http://www.portalfiscal.inf.br/nfe/wsdl/${s.wsdl}`;
   const envelope =
     `<?xml version="1.0" encoding="utf-8"?><soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope"><soap12:Body><nfeDadosMsg xmlns="${wsdlNs}">${mensagemXml}</nfeDadosMsg></soap12:Body></soap12:Envelope>`;
-  const url = new URL(urlOverride || urlServico(servico, ambiente));
+  const alvo = urlOverride ? { url: urlOverride, metodo: urlServico(servico, ambiente, uf || "SP").metodo } : urlServico(servico, ambiente, uf);
+  const url = new URL(alvo.url);
   return new Promise((resolve, reject) => {
     const req = https.request(
       {
         method: "POST", hostname: url.hostname, port: url.port || 443, path: url.pathname,
         agent: agenteDe(cert, ca),
         headers: {
-          "Content-Type": `application/soap+xml; charset=utf-8; action="${wsdlNs}/${s.op}"`,
+          "Content-Type": `application/soap+xml; charset=utf-8; action="${wsdlNs}/${alvo.metodo}"`,
           "Content-Length": Buffer.byteLength(envelope),
         },
         timeout: timeoutMs,
@@ -100,7 +102,9 @@ const lista = (x) => (x == null ? [] : Array.isArray(x) ? x : [x]);
 
 /** Consulta o status do serviço de autorização (cStat 107 = em operação). */
 export async function statusServico(cert, ambiente, opts = {}) {
-  const msg = `<consStatServ xmlns="${NS}" versao="4.00"><tpAmb>${tpAmb(ambiente)}</tpAmb><cUF>35</cUF><xServ>STATUS</xServ></consStatServ>`;
+  const uf = String(opts.uf || "SP").toUpperCase();
+  if (!UF_CODE[uf]) throw new SefazError(`UF inválida: ${uf}.`);
+  const msg = `<consStatServ xmlns="${NS}" versao="4.00"><tpAmb>${tpAmb(ambiente)}</tpAmb><cUF>${UF_CODE[uf]}</cUF><xServ>STATUS</xServ></consStatServ>`;
   const r = parse(await soap("status", msg, cert, { ambiente, ...opts })).retConsStatServ || {};
   return { cStat: r.cStat, xMotivo: r.xMotivo, online: r.cStat === "107", dhRecbto: r.dhRecbto, tMed: r.tMed };
 }
@@ -127,7 +131,7 @@ function resultadoProt(protXml) {
 /** Consulta a situação de uma nota pela chave de acesso. */
 export async function consultarChave(cert, ambiente, chave, opts = {}) {
   const msg = `<consSitNFe xmlns="${NS}" versao="4.00"><tpAmb>${tpAmb(ambiente)}</tpAmb><xServ>CONSULTAR</xServ><chNFe>${onlyDigits(chave)}</chNFe></consSitNFe>`;
-  const xml = await soap("consulta", msg, cert, { ambiente, ...opts });
+  const xml = await soap("consulta", msg, cert, { ambiente, uf: ufDaChave(chave), ...opts });
   const r = parse(xml).retConsSitNFe || {};
   const protXml = extrair(xml, "protNFe");
   const eventos = lista(pega(parse(xml), "retConsSitNFe", "procEventoNFe")).map((e) => ({
@@ -147,6 +151,7 @@ export async function consultarChave(cert, ambiente, chave, opts = {}) {
  * se necessário, consulta o recibo. Devolve { status, cStat, xMotivo, protocolo, xmlAssinado, xmlProc }.
  */
 export async function autorizarNfe(cert, ambiente, { xml, chave }, opts = {}) {
+  opts = { uf: ufDaChave(chave), ...opts }; // a UF do emitente está nos 2 primeiros dígitos da chave
   const assinado = assinar(xml, "infNFe", cert);
   const lote = `<enviNFe xmlns="${NS}" versao="4.00"><idLote>${String(Date.now()).slice(-15)}</idLote><indSinc>1</indSinc>${assinado}</enviNFe>`;
   let retXml;
@@ -195,10 +200,10 @@ const escTxt = (s) => String(s ?? "").replace(/\s+/g, " ").trim().replace(/&/g, 
 async function enviarEvento(cert, ambiente, { chave, cnpj, tpEvento, nSeq, detEvento }, opts) {
   const id = `ID${tpEvento}${chave}${String(nSeq).padStart(2, "0")}`;
   const evento =
-    `<evento xmlns="${NS}" versao="1.00"><infEvento Id="${id}"><cOrgao>${UF_CODE.SP}</cOrgao><tpAmb>${tpAmb(ambiente)}</tpAmb><CNPJ>${onlyDigits(cnpj)}</CNPJ><chNFe>${chave}</chNFe><dhEvento>${dhBrasilia()}</dhEvento><tpEvento>${tpEvento}</tpEvento><nSeqEvento>${nSeq}</nSeqEvento><verEvento>1.00</verEvento>${detEvento}</infEvento></evento>`;
+    `<evento xmlns="${NS}" versao="1.00"><infEvento Id="${id}"><cOrgao>${onlyDigits(chave).slice(0, 2)}</cOrgao><tpAmb>${tpAmb(ambiente)}</tpAmb><CNPJ>${onlyDigits(cnpj)}</CNPJ><chNFe>${chave}</chNFe><dhEvento>${dhBrasilia()}</dhEvento><tpEvento>${tpEvento}</tpEvento><nSeqEvento>${nSeq}</nSeqEvento><verEvento>1.00</verEvento>${detEvento}</infEvento></evento>`;
   const eventoAssinado = assinar(evento, "infEvento", cert);
   const env = `<envEvento xmlns="${NS}" versao="1.00"><idLote>${String(Date.now()).slice(-15)}</idLote>${eventoAssinado}</envEvento>`;
-  const xml = await soap("evento", env, cert, { ambiente, ...opts });
+  const xml = await soap("evento", env, cert, { ambiente, uf: ufDaChave(chave), ...opts });
   const inf = parse(xml).retEnvEvento?.retEvento?.infEvento || {};
   const cStat = String(inf.cStat || "");
   const retEventoXml = extrair(xml, "retEvento");
@@ -227,13 +232,16 @@ export function cartaCorrecao(cert, ambiente, { chave, cnpj, texto, seq = 1 }, o
 }
 
 /** Inutiliza uma faixa de números (quando um número foi pulado e não será usado). */
-export async function inutilizarNumeros(cert, ambiente, { cnpj, serie, nIni, nFin, justificativa }, opts = {}) {
+export async function inutilizarNumeros(cert, ambiente, { cnpj, uf, serie, nIni, nFin, justificativa }, opts = {}) {
+  const ufSigla = String(uf || "").toUpperCase();
+  const cUF = UF_CODE[ufSigla];
+  if (!cUF) throw new SefazError("Informe a UF do emitente para inutilizar números.");
   const j = escTxt(justificativa);
   if (j.length < 15) throw new SefazError("A justificativa precisa ter pelo menos 15 caracteres.");
   const ano = String(new Date().getFullYear()).slice(2);
-  const id = `ID35${ano}${onlyDigits(cnpj)}55${String(Number(serie)).padStart(3, "0")}${String(Number(nIni)).padStart(9, "0")}${String(Number(nFin)).padStart(9, "0")}`;
-  const inut = `<inutNFe xmlns="${NS}" versao="4.00"><infInut Id="${id}"><tpAmb>${tpAmb(ambiente)}</tpAmb><xServ>INUTILIZAR</xServ><cUF>35</cUF><ano>${ano}</ano><CNPJ>${onlyDigits(cnpj)}</CNPJ><mod>55</mod><serie>${Number(serie)}</serie><nNFIni>${Number(nIni)}</nNFIni><nNFFin>${Number(nFin)}</nNFFin><xJust>${j}</xJust></infInut></inutNFe>`;
-  const xml = await soap("inutilizacao", assinar(inut, "infInut", cert), cert, { ambiente, ...opts });
+  const id = `ID${cUF}${ano}${onlyDigits(cnpj)}55${String(Number(serie)).padStart(3, "0")}${String(Number(nIni)).padStart(9, "0")}${String(Number(nFin)).padStart(9, "0")}`;
+  const inut = `<inutNFe xmlns="${NS}" versao="4.00"><infInut Id="${id}"><tpAmb>${tpAmb(ambiente)}</tpAmb><xServ>INUTILIZAR</xServ><cUF>${cUF}</cUF><ano>${ano}</ano><CNPJ>${onlyDigits(cnpj)}</CNPJ><mod>55</mod><serie>${Number(serie)}</serie><nNFIni>${Number(nIni)}</nNFIni><nNFFin>${Number(nFin)}</nNFFin><xJust>${j}</xJust></infInut></inutNFe>`;
+  const xml = await soap("inutilizacao", assinar(inut, "infInut", cert), cert, { ambiente, uf: ufSigla, ...opts });
   const inf = parse(xml).retInutNFe?.infInut || {};
   return { cStat: String(inf.cStat || ""), xMotivo: inf.xMotivo || "", protocolo: inf.nProt || "", ok: String(inf.cStat) === "102" };
 }

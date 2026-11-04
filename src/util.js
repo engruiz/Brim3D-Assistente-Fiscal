@@ -10,6 +10,12 @@ export const UF_CODE = {
   PR: "41", SC: "42", RS: "43", MS: "50", MT: "51", GO: "52", DF: "53",
 };
 
+/** UF (sigla) do emitente a partir dos 2 primeiros dígitos da chave de acesso. */
+export function ufDaChave(chave) {
+  const c = onlyDigits(chave).slice(0, 2);
+  return Object.keys(UF_CODE).find((k) => UF_CODE[k] === c) || "SP";
+}
+
 /** Dígito verificador (módulo 11) da chave de acesso de 43 posições. */
 export function dvChave(chave43) {
   let peso = 2;

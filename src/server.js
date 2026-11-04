@@ -1,5 +1,5 @@
 // Assistente Fiscal do Brim3D — servidor local (127.0.0.1) que guarda o certificado A1,
-// assina e transmite a NF-e para a SEFAZ-SP. O sistema (Base44) conversa com ele pelo navegador.
+// assina e transmite a NF-e para a SEFAZ da UF do emitente. O sistema (Base44) conversa com ele pelo navegador.
 import http from "node:http";
 import fs from "node:fs";
 import { exec } from "node:child_process";
@@ -8,7 +8,7 @@ import { montarNfe, validarPayload } from "./xml.js";
 import { autorizarNfe, consultarChave, cancelarNfe, cartaCorrecao, inutilizarNumeros, statusServico, SefazError } from "./sefaz.js";
 import { lerConfig, salvarConfig, arquivoPfx, cifrarSenha, decifrarSenha, guardarNota, log, lerCa, pastaDados } from "./config.js";
 import { paginaInicial, VERSAO } from "./page.js";
-import { onlyDigits } from "./util.js";
+import { onlyDigits, UF_CODE } from "./util.js";
 import { iniciarMonitor, statusMonitor, atualizarAgora, procurarImpressoras } from "./monitor/index.js";
 import { definirCodigo, definirAcesso } from "./monitor/store.js";
 
@@ -120,8 +120,26 @@ export function criarServidor() {
       if (url.pathname === "/sefaz/status") {
         exigirCert("homologacao", cfg);
         if (b.ambiente === "producao" && !cert) throw new CertError("Carregue o certificado primeiro.");
-        const r = await statusServico(cert, b.ambiente === "producao" ? "producao" : "homologacao", { ca: lerCa() });
+        const r = await statusServico(cert, b.ambiente === "producao" ? "producao" : "homologacao", { ca: lerCa(), uf: String(b.uf || "SP").toUpperCase() });
         return responder(res, 200, { ok: true, ...r }, cors);
+      }
+
+      if (url.pathname === "/sefaz/status-todos") {
+        // Testa a conexão com a SEFAZ de cada UF (homologação), para conferir os endereços de todos os estados.
+        exigirCert("homologacao", cfg);
+        const ufs = Object.keys(UF_CODE);
+        const out = [];
+        let i = 0;
+        const worker = async () => {
+          while (i < ufs.length) {
+            const uf = ufs[i++];
+            try { const r = await statusServico(cert, "homologacao", { ca: lerCa(), uf, timeoutMs: 20000 }); out.push({ uf, ok: true, online: r.online, cStat: r.cStat, xMotivo: r.xMotivo }); }
+            catch (e) { out.push({ uf, ok: false, erro: erroDe(e) }); }
+          }
+        };
+        await Promise.all([worker(), worker(), worker(), worker()]);
+        out.sort((x, y) => x.uf.localeCompare(y.uf));
+        return responder(res, 200, { ok: true, resultados: out }, cors);
       }
 
       if (url.pathname === "/nfe/emitir") {
@@ -165,7 +183,7 @@ export function criarServidor() {
       if (url.pathname === "/nfe/inutilizar") {
         const ambiente = b.ambiente === "producao" ? "producao" : "homologacao";
         exigirCert(ambiente, cfg, b.cnpj);
-        const r = await inutilizarNumeros(cert, ambiente, { cnpj: b.cnpj || cert.cnpj, serie: b.serie || 1, nIni: b.nIni, nFin: b.nFin || b.nIni, justificativa: b.justificativa }, { ca: lerCa() });
+        const r = await inutilizarNumeros(cert, ambiente, { cnpj: b.cnpj || cert.cnpj, uf: b.uf, serie: b.serie || 1, nIni: b.nIni, nFin: b.nFin || b.nIni, justificativa: b.justificativa }, { ca: lerCa() });
         return responder(res, 200, { ok: true, ...r }, cors);
       }
 

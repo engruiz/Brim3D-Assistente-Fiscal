@@ -1,5 +1,5 @@
 // Página de configuração do Assistente (abre em http://localhost:3777).
-export const VERSAO = "2.2.0";
+export const VERSAO = "2.3.1";
 
 export function paginaInicial(token) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -51,9 +51,12 @@ small{color:var(--m)}ul{margin:6px 0 0 18px;padding:0;color:var(--m);font-size:1
 <p style="margin:0 0 10px;color:var(--m);font-size:14px">Enquanto estiver desligado, só é possível emitir em <b>homologação</b> (teste, sem valor fiscal). Ligue só depois de testar tudo.</p>
 <label style="display:flex;gap:8px;align-items:center;color:var(--t)"><input type="checkbox" id="prod" onchange="salvarProd()"> Liberar emissão real (produção)</label></div>
 
-<div class="card"><h2>4. Testar conexão com a SEFAZ-SP</h2>
+<div class="card"><h2>4. Testar conexão com a SEFAZ</h2>
+<div class="row"><label style="color:var(--t)">Estado (UF) da sua empresa: <select id="ufTeste" onchange="try{localStorage.ufTeste=this.value}catch(e){}"><option>AC</option><option>AL</option><option>AM</option><option>AP</option><option>BA</option><option>CE</option><option>DF</option><option>ES</option><option>GO</option><option>MA</option><option>MG</option><option>MS</option><option>MT</option><option>PA</option><option>PB</option><option>PE</option><option>PI</option><option>PR</option><option>RJ</option><option>RN</option><option>RO</option><option>RR</option><option>RS</option><option>SC</option><option>SE</option><option selected>SP</option><option>TO</option></select></label></div>
 <div class="row"><button class="sec" onclick="testar('homologacao')">Testar homologação</button><button class="sec" onclick="testar('producao')">Testar produção</button></div>
-<div id="testMsg" class="msg"></div></div>
+<div id="testMsg" class="msg"></div>
+<div class="row" style="margin-top:12px"><button class="sec" onclick="testarTodos()">Testar todos os estados (homologação)</button></div>
+<div id="todosMsg" class="msg"></div></div>
 
 </div>
 <p><small>Versão ${VERSAO}. As notas emitidas ficam copiadas aqui no computador (pasta do Assistente). O certificado nunca sai deste computador.</small></p>
@@ -85,7 +88,9 @@ async function enviarCert(){
 }
 async function removerCert(){if(!confirm('Remover o certificado deste computador?'))return;await api('/certificado/remover',{});set('certMsg','Certificado removido.','ok');carregar();}
 async function salvarProd(){const v=document.getElementById('prod').checked;if(v&&!confirm('Liberar a emissão de notas com valor fiscal?')){document.getElementById('prod').checked=false;return;}await api('/config',{producaoLiberada:v});}
-async function testar(a){set('testMsg','Conectando…','');const r=await api('/sefaz/status',{ambiente:a});set('testMsg',r.ok?('SEFAZ respondeu: '+r.xMotivo+(r.online?' ✔':'')):('Falhou: '+(r.erro||'sem resposta')),r.ok&&r.online?'ok':'er');}
+async function testar(a){set('testMsg','Conectando…','');let uf='SP';try{uf=document.getElementById('ufTeste').value}catch(e){}const r=await api('/sefaz/status',{ambiente:a,uf});set('testMsg',r.ok?('SEFAZ respondeu: '+r.xMotivo+(r.online?' ✔':'')):('Falhou: '+(r.erro||'sem resposta')),r.ok&&r.online?'ok':'er');}
+try{if(localStorage.ufTeste)document.getElementById('ufTeste').value=localStorage.ufTeste}catch(e){}
+async function testarTodos(){set('todosMsg','Testando os 27 estados… (pode levar cerca de 1 minuto)','');const r=await api('/sefaz/status-todos',{});if(!r.ok){set('todosMsg','Falhou: '+(r.erro||'sem resposta'),'er');return;}const bons=r.resultados.filter(x=>x.ok&&x.online).length;document.getElementById('todosMsg').className=bons===r.resultados.length?'msg ok':'msg er';document.getElementById('todosMsg').innerHTML='<b>'+bons+' de '+r.resultados.length+' estados responderam.</b><br>'+r.resultados.map(x=>x.uf+': '+(x.ok?(x.online?'OK':('fora do ar ('+esc(x.xMotivo)+')')):('falhou — '+esc(x.erro)))).join('<br>');}
 carregar();
 
 const TIPO={bambu_lan:'Bambu LAN',bambu_nuvem:'Bambu nuvem',moonraker:'Klipper',elegoo_sdcp:'Elegoo',anycubic_lan:'Anycubic LAN',octoprint:'OctoPrint',prusalink:'PrusaLink',snapmaker2:'Snapmaker 2.0'};
