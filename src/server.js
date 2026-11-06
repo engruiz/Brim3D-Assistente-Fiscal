@@ -11,7 +11,7 @@ import { paginaInicial, VERSAO } from "./page.js";
 import { onlyDigits, UF_CODE } from "./util.js";
 import { iniciarMonitor, statusMonitor, atualizarAgora, procurarImpressoras } from "./monitor/index.js";
 import { definirCodigo, definirAcesso } from "./monitor/store.js";
-import { rodandoComoExe, iniciarComWindowsAtivo, definirIniciarComWindows, conferirInicioAutomatico, esconderJanelaPreta, iniciarBandeja, fecharBandeja } from "./sistema.js";
+import { rodandoComoExe, iniciarComWindowsAtivo, definirIniciarComWindows, conferirInicioAutomatico, esconderJanelaPreta, iniciarBandeja, fecharBandeja, reabrirSemJanela } from "./sistema.js";
 
 const PORTA = Number(process.env.FISCAL_PORT || 3777);
 let cert = null; // certificado aberto em memória
@@ -216,6 +216,11 @@ const executadoDiretamente = !process.env.FISCAL_NO_AUTOSTART;
 if (executadoDiretamente) {
   // "--segundo-plano" = aberto pelo Windows ao ligar o computador: não abre o navegador, só fica ao lado do relógio.
   const segundoPlano = process.argv.includes("--segundo-plano");
+  if (reabrirSemJanela(segundoPlano)) {
+    // A cópia sem janela assume daqui; esta (com a janela preta) só se despede e fecha.
+    dizer("Abrindo o Brim3D Desktop em segundo plano... esta janela fecha sozinha.");
+    setTimeout(() => process.exit(0), 1200);
+  } else {
   if (rodandoComoExe()) esconderJanelaPreta();
   carregarCertSalvo();
   iniciarMonitor(log);
@@ -240,4 +245,5 @@ if (executadoDiretamente) {
     if (!segundoPlano && !process.env.FISCAL_NO_BROWSER) abrirNavegador(`http://localhost:${PORTA}`);
   });
   process.on("exit", fecharBandeja);
+  }
 }

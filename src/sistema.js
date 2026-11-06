@@ -50,6 +50,20 @@ export async function esconderJanelaPreta() {
   } catch { /* sem FFI: segue com a janela */ }
 }
 
+// Quando o .exe é aberto com duplo clique, o Windows cria uma janela preta que, se fechada, derruba o programa.
+// Para não depender disso, o programa se reabre sozinho SEM janela (processo solto) e a primeira cópia sai.
+export function reabrirSemJanela(segundoPlano) {
+  if (!rodandoComoExe() || process.argv.includes("--filho")) return false;
+  try {
+    const args = ["--filho"];
+    if (segundoPlano) args.push("--segundo-plano");
+    const p = spawn(process.execPath, args, { detached: true, windowsHide: true, stdio: "ignore", env: process.env });
+    p.on("error", () => {});
+    p.unref();
+    return true;
+  } catch (e) { log(`Não consegui reabrir em segundo plano: ${e.message}`); return false; }
+}
+
 const SCRIPT_BANDEJA = `
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -135,8 +149,10 @@ export function iniciarBandeja({ porta, token, aviso }) {
     const arq = path.join(pastaDados(), "bandeja.ps1");
     fs.mkdirSync(pastaDados(), { recursive: true });
     fs.writeFileSync(arq, "﻿" + SCRIPT_BANDEJA, "utf8"); // BOM para o PowerShell ler os acentos
+    let erros = "ignore";
+    try { erros = fs.openSync(path.join(pastaDados(), "bandeja.log"), "w"); } catch { /* sem log */ }
     filho = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", arq], {
-      windowsHide: true, stdio: "ignore",
+      windowsHide: true, stdio: ["ignore", "ignore", erros],
       env: { ...process.env, BRIM_PORTA: String(porta), BRIM_TOKEN: token, BRIM_AVISO: aviso ? "1" : "0" },
     });
     filho.on("error", (e) => log(`Bandeja não iniciou: ${e.message}`));
