@@ -11,6 +11,7 @@ import { paginaInicial, VERSAO } from "./page.js";
 import { onlyDigits, UF_CODE } from "./util.js";
 import { iniciarMonitor, statusMonitor, atualizarAgora, procurarImpressoras } from "./monitor/index.js";
 import { definirCodigo, definirAcesso } from "./monitor/store.js";
+import { rodandoComoExe, iniciarComWindowsAtivo, definirIniciarComWindows, conferirInicioAutomatico, esconderJanelaPreta, iniciarBandeja, fecharBandeja } from "./sistema.js";
 
 const PORTA = Number(process.env.FISCAL_PORT || 3777);
 let cert = null; // certificado aberto em memória
@@ -82,11 +83,20 @@ export function criarServidor() {
       // Tudo abaixo exige o código de conexão
       if (req.headers["x-fiscal-token"] !== cfg.token) return responder(res, 401, { ok: false, erro: "Código de conexão inválido. Copie o código mostrado na janela do Assistente Fiscal." }, cors);
 
+      if (req.method === "GET" && url.pathname === "/sistema/estado") return responder(res, 200, { ok: true, exe: rodandoComoExe(), iniciarComWindows: await iniciarComWindowsAtivo() }, cors);
       if (req.method === "GET" && url.pathname === "/monitor/status") return responder(res, 200, { ok: true, ...statusMonitor() }, cors);
       if (req.method === "GET" && url.pathname === "/status") return responder(res, 200, { ok: true, versao: VERSAO, certificado: infoCert(), producaoLiberada: cfg.producaoLiberada, pasta: pastaDados() }, cors);
       if (req.method !== "POST") return responder(res, 404, { ok: false, erro: "Rota não encontrada." }, cors);
       const b = await lerCorpo(req);
 
+      if (url.pathname === "/sistema/iniciar-com-windows") return responder(res, 200, await definirIniciarComWindows(!!b.ativo), cors);
+      if (url.pathname === "/sistema/sair") {
+        // Pedido pelo ícone da bandeja (ou pela página): responde e encerra o programa.
+        responder(res, 200, { ok: true }, cors);
+        log("Encerrado pelo usuário (menu da bandeja).");
+        setTimeout(() => { fecharBandeja(); process.exit(0); }, 300);
+        return;
+      }
       if (url.pathname === "/monitor/config") { definirCodigo(b.codigo); atualizarAgora(); return responder(res, 200, { ok: true }, cors); }
       if (url.pathname === "/monitor/acesso") { definirAcesso(b.chave || b.serial, b.codigo); atualizarAgora(); return responder(res, 200, { ok: true }, cors); }
       if (url.pathname === "/monitor/procurar") { procurarImpressoras(); return responder(res, 200, { ok: true }, cors); }
@@ -200,22 +210,34 @@ function abrirNavegador(url) {
   exec(cmd, () => {});
 }
 
+const dizer = (...a) => { try { console.log(...a); } catch { /* sem janela de texto */ } };
+
 const executadoDiretamente = !process.env.FISCAL_NO_AUTOSTART;
 if (executadoDiretamente) {
+  // "--segundo-plano" = aberto pelo Windows ao ligar o computador: não abre o navegador, só fica ao lado do relógio.
+  const segundoPlano = process.argv.includes("--segundo-plano");
+  if (rodandoComoExe()) esconderJanelaPreta();
   carregarCertSalvo();
   iniciarMonitor(log);
   const srv = criarServidor();
   srv.on("error", (e) => {
-    if (e.code === "EADDRINUSE") { console.log(`\nO Brim3D Desktop já está aberto (porta ${PORTA}). Pode fechar esta janela.\n`); abrirNavegador(`http://localhost:${PORTA}`); setTimeout(() => process.exit(0), 3000); }
-    else { console.error(e); }
+    if (e.code === "EADDRINUSE") {
+      // Já está aberto em segundo plano: abrir o .exe de novo só traz a página para a frente.
+      if (!segundoPlano && !process.env.FISCAL_NO_BROWSER) abrirNavegador(`http://localhost:${PORTA}`);
+      setTimeout(() => process.exit(0), 1500);
+    } else { try { console.error(e); } catch { /* sem janela */ } }
   });
   srv.listen(PORTA, "127.0.0.1", () => {
-    console.log("\n==============================================");
-    console.log("  BRIM3D DESKTOP  v" + VERSAO);
-    console.log("==============================================");
-    console.log(`  Rodando em http://localhost:${PORTA}`);
-    console.log("  Deixe esta janela ABERTA: ela monitora as impressoras e emite notas.");
-    console.log("  Para sair, feche esta janela.\n");
-    if (!process.env.FISCAL_NO_BROWSER) abrirNavegador(`http://localhost:${PORTA}`);
+    dizer("\n==============================================");
+    dizer("  BRIM3D DESKTOP  v" + VERSAO);
+    dizer("==============================================");
+    dizer(`  Rodando em http://localhost:${PORTA}`);
+    dizer("  No Windows ele fica escondido ao lado do relógio (bandeja). Para sair: botão direito no ícone > Sair.\n");
+    if (rodandoComoExe()) {
+      iniciarBandeja({ porta: PORTA, token: lerConfig().token, aviso: !segundoPlano });
+      conferirInicioAutomatico();
+    }
+    if (!segundoPlano && !process.env.FISCAL_NO_BROWSER) abrirNavegador(`http://localhost:${PORTA}`);
   });
+  process.on("exit", fecharBandeja);
 }

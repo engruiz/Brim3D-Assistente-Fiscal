@@ -1,12 +1,12 @@
 {
   "name": "brim3d-desktop",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "private": true,
   "type": "module",
   "description": "Brim3D Desktop: Monitor das impressoras (Bambu, Klipper…) e Assistente Fiscal (NF-e) em um programa só para Windows.",
   "scripts": {
     "start": "node src/server.js",
-    "build:win": "bun build --compile --target=bun-windows-x64 src/server.js --outfile dist/Brim3D-Desktop.exe"
+    "build:win": "bun build --compile --target=bun-windows-x64 src/server.js --windows-hide-console --outfile dist/Brim3D-Desktop.exe"
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.12",

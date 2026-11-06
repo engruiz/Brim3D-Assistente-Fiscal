@@ -1,5 +1,5 @@
 // Página de configuração do Assistente (abre em http://localhost:3777).
-export const VERSAO = "2.3.1";
+export const VERSAO = "2.4.0";
 
 export function paginaInicial(token) {
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -22,7 +22,12 @@ button.sec{background:#e2e8f0;color:var(--t)}button:disabled{opacity:.5;cursor:d
 .msg{margin-top:10px;font-size:14px}.msg.er{color:var(--er);background:none}.msg.ok{color:var(--ok);background:none}
 small{color:var(--m)}ul{margin:6px 0 0 18px;padding:0;color:var(--m);font-size:14px}
 </style></head><body><div class="wrap">
-<h1>Brim3D Desktop</h1><p class="sub">Monitora as impressoras da sua farm e emite a nota fiscal com o certificado deste computador. Deixe esta janela aberta.</p>
+<h1>Brim3D Desktop</h1><p class="sub">Monitora as impressoras da sua farm e emite a nota fiscal com o certificado deste computador. Ele roda escondido ao lado do relógio do Windows (setinha da barra de tarefas): pode fechar esta página do navegador à vontade.</p>
+
+<div id="autoCard" class="card" style="display:none"><h2>Iniciar com o Windows</h2>
+<label style="display:flex;gap:8px;align-items:center;color:var(--t);margin:0"><input type="checkbox" id="auto" onchange="salvarAuto()"> Abrir o Brim3D Desktop sozinho quando eu ligar o computador</label>
+<p style="margin:8px 0 0;color:var(--m);font-size:14px">Ele fica escondido ao lado do relógio (setinha ^ da barra de tarefas), sem janela para fechar sem querer. Para sair de vez: botão direito no ícone laranja com um B › Sair.</p>
+<div id="autoMsg" class="msg"></div></div>
 
 <div class="card"><h2>Monitor da Farm</h2>
 <div id="monStatus" class="row"><span class="badge wa">Carregando…</span></div>
@@ -66,6 +71,15 @@ const T=${JSON.stringify(token)};
 const H={'Content-Type':'application/json','X-Fiscal-Token':T};
 async function api(p,b){const r=await fetch(p,{method:b?'POST':'GET',headers:H,body:b?JSON.stringify(b):undefined});return r.json();}
 function set(id,html,cls){const e=document.getElementById(id);e.innerHTML=html;if(cls!==undefined)e.className='msg '+cls;}
+async function carregarAuto(){
+ try{const a=await api('/sistema/estado');if(!a.exe)return;document.getElementById('autoCard').style.display='';document.getElementById('auto').checked=!!a.iniciarComWindows;}catch(e){}
+}
+async function salvarAuto(){
+ const v=document.getElementById('auto').checked;const r=await api('/sistema/iniciar-com-windows',{ativo:v});
+ if(r.ok)set('autoMsg',v?'Pronto: ele vai abrir sozinho quando você ligar o computador.':'Desligado: ele não abre mais sozinho.','ok');
+ else{document.getElementById('auto').checked=!v;set('autoMsg',r.erro||'Não consegui alterar.','er');}
+}
+carregarAuto();
 async function carregar(){
  const s=await api('/status');const c=s.certificado||{};
  let h;
